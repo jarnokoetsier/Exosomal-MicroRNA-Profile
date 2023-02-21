@@ -1,7 +1,15 @@
+#==============================================================================#
 
-################################################################################
+#   File:     ProteinMarkers.R
+#   Author:   Jarno Koetsier
+#   Date:     February 6, 2023
 
-# Read and format data
+#==============================================================================#
+
+
+###############################################################################
+
+# 0. Preparation
 
 ###############################################################################
 
@@ -16,19 +24,29 @@ library(grid)
 library(heatmaply)
 library(readxl)
 
-# Set home directory
-homeDir <- "E:/RTTproject/ExosomeAnalysis/"
-
 # Set working directory
-setwd(paste0(homeDir,"ProteinMarkers"))
+setwd("E:/RTTproject/ExosomeAnalysis")
 
-# Load data
-load(paste0(homeDir,"sampleInfo.RData"))
+# Get data directory
+dataDir <- "E:/RTTproject/ExosomeAnalysis/"
 
-# Read data
+# Get output directory
+outputDir <- "E:/RTTproject/ExosomeAnalysis/Quality Control/"
+
+
+###############################################################################
+
+# 1. Data collection and formatting
+
+###############################################################################
+
+# Load sample information
+load(paste0(dataDir,"sampleInfo.RData"))
+
+# Read proteomics data
 pxData_exo <- read.delim("E:/RTTproject/OriginalData/Proteomics/DEP analysis/Result files/20210308_exo_total_scaling_norm.txt")
 
-# Filter data
+# Filter proteomics data (remove low quality and contaminations)
 pxData_exo <- pxData_exo[!pxData_exo$Contaminant,]
 pxData_exo <- pxData_exo[pxData_exo$Score.Sequest.HT>10,]
 rownames(pxData_exo) <- pxData_exo[,1]
@@ -101,14 +119,21 @@ colnames(pxData_exo) <- samples1
 pxData_exo <- log2(pxData_exo)
 
 # Save data
-save(pxData_exo, file = "pxData_exo.RData")
+save(pxData_exo, file = paste0(dataDir,"pxData_exo.RData"))
+
+
+###############################################################################
+
+# 2. Convert IDs of exosomal markers
+
+###############################################################################
 
 
 # Read the top 100 exosomal markers from ExoCarta
-markers <- read_excel("Exo_markers.xlsx")
+markers <- read_excel(paste0(dataDir,"Exo_markers.xlsx"))
 
-# Make annotations: gene symbol to uniprot
-ensembl=useMart("ensembl")
+# Use Ensembl to convert gene symbol to uniprot ID
+ensembl = useMart("ensembl")
 ensembl = useDataset("hsapiens_gene_ensembl",mart=ensembl)
 
 annotations <- getBM(attributes=c("hgnc_symbol", "protein_id"), 
@@ -116,30 +141,21 @@ annotations <- getBM(attributes=c("hgnc_symbol", "protein_id"),
                      values = markers$`Gene Symbol`,
                      mart = ensembl)
 
-write.csv(annotations, file = "annotation.csv")
+# Save annotations
+write.csv(annotations, file = paste0(dataDir,"annotation_px.csv"))
+
 
 ################################################################################
 
-# Density plot
+# 3. Density plot
 
 ###############################################################################
 
-# Clear workspace and console
-rm(list = ls())
-cat("\014") 
+# Load sample information
+load(paste0(dataDir,"sampleInfo.RData"))
 
-# Load packages
-library(tidyverse)
-
-# Set home directory
-homeDir <- "E:/RTTproject/ExosomeAnalysis/"
-
-# Set working directory
-setwd(paste0(homeDir,"ProteinMarkers"))
-
-# Load data
-load(paste0(homeDir,"sampleInfo.RData"))
-load("pxData_exo.RData")
+# Load proteomics data
+load(paste0(dataDir,"pxData_exo.RData"))
 
 # Gather normalized data
 exprPlot <- gather(as.data.frame(pxData_exo), key = "Sample", value = "Expr")
@@ -155,41 +171,29 @@ exprDensityplot <- ggplot(exprPlot, aes(x = Expr)) +
   theme_minimal() +
   theme(legend.position = "none") 
 
-ggsave(exprDensityplot, file = "exo_proteinExpr_density.png", height = 1, width = 8)
+# Save plot
+ggsave(exprDensityplot, file = paste0(outputDir,"exo_proteinExpr_density.png"),
+       height = 1, width = 8)
 
 
 
 ###############################################################################
 
-# Heatmap
+# 4. Heatmap
 
 ###############################################################################
 
-# Clear workspace and console
-rm(list = ls())
-cat("\014") 
+# Load sample information
+load(paste0(dataDir,"sampleInfo.RData"))
 
-# Load packages
-library(tidyverse)
-library(biomaRt)
-
-# Set homeDir
-homeDir <- "E:/RTTproject/ExosomeAnalysis/"
-
-# Set working directory
-setwd(paste0(homeDir,"ProteinMarkers"))
-
-# Load sample information data
-load(paste0(homeDir,"sampleInfo.RData"))
-
-# Load protein expression data
-load("pxData_exo.RData")
+# Load proteomics data
+load(paste0(dataDir,"pxData_exo.RData"))
 
 # Read the top 100 exosomal markers from ExoCarta
-markers <- read_excel("Exo_markers.xlsx")
+markers <- read_excel(paste0(dataDir,"Exo_markers.xlsx"))
 
 # Read annotation data (to convert UniProt ID to Protein Name)
-annotation <- unique(read.csv("annotation.csv"))
+annotation <- unique(read.csv(paste0(dataDir,"annotation_px.csv")))
 
 # Remove empty cells
 annotation <- annotation[(annotation$UniProtKB.Swiss.Prot.ID != ""),]
@@ -201,7 +205,7 @@ missing <- data.frame(Name = c("HIST1H4A", "HIST2H4A", "HIST1H4B"),
 colnames(missing) <- colnames(annotation)
 annotation <- rbind.data.frame(annotation,missing)
 
-# Get Protein expression
+# Format protein expression data
 pxData_proteins <- pxData_exo[str_remove(rownames(pxData_exo), "-.") %in% annotation$UniProtKB.Swiss.Prot.ID,]
 plotDF <- gather(pxData_proteins)
 plotDF$Protein <- rep(rownames(pxData_proteins), ncol(pxData_proteins))
@@ -215,7 +219,7 @@ plotDF <- inner_join(plotDF, sampleInfo, by = c("key" = "SampleID"))
 
 
 #*****************************************************************************#
-# IC
+# Heatmap for IC samples
 #*****************************************************************************#
 
 # Filter for IC samples
@@ -253,14 +257,14 @@ main <- ggplot(plotDF_IC) +
         strip.background = element_blank(),
         strip.text.x = element_blank())
 
-# Col side color (Time and tissue)
+# Column side color (Time and tissue/region)
 colSideColor<- unique(data.frame(
   sample = factor(str_remove_all(plotDF_IC$key, "MeCP2_R255X_"),
                   levels = str_remove_all(levels(plotDF_IC$key), "MeCP2_R255X_")),
   time = plotDF_IC$Time,
   tissue = plotDF_IC$Tissue))
 
-
+# Time
 colSideColorPlot_time <- ggplot(data = colSideColor) +
   geom_tile(aes(x = sample, y = "label", fill = time)) +
   geom_text(data = colSideColor[str_detect(colSideColor$sample, "2"),],
@@ -274,7 +278,7 @@ colSideColorPlot_time <- ggplot(data = colSideColor) +
         strip.text.x = element_blank()) +
   scale_fill_brewer(palette = "Reds")
 
-
+# Tissue/region
 colSideColorPlot_tissue <- ggplot(data = colSideColor) +
   geom_tile(aes(x = sample, y = "label", fill = tissue)) +
   geom_text(data = colSideColor[str_detect(colSideColor$sample, "2") & 
@@ -303,10 +307,10 @@ markerPlot <- ggpubr::ggarrange(colSideColorPlot_tissue,
                                 common.legend = FALSE)
 
 # save figure
-ggsave(markerPlot, file = "markerPlot_IC.png", width = 6, height = 9)
+ggsave(markerPlot, file = paste0(outputDir,"markerPlot_IC.png"), width = 6, height = 9)
 
 #*****************************************************************************#
-# RTT
+# Heatmap for RTT samples
 #*****************************************************************************#
 
 # Filter for RTT samples
@@ -343,14 +347,14 @@ main <- ggplot(plotDF_RTT) +
         strip.background = element_blank(),
         strip.text.x = element_blank())
 
-# Col side color (Time and tissue)
+# Column side color (Time and tissue/region)
 colSideColor<- unique(data.frame(
   sample = factor(str_remove_all(plotDF_RTT$key, "MeCP2_R255X_"),
                   levels = str_remove_all(levels(plotDF_RTT$key), "MeCP2_R255X_")),
   time = plotDF_RTT$Time,
   tissue = plotDF_RTT$Tissue))
 
-
+# Time
 colSideColorPlot_time <- ggplot(data = colSideColor) +
   geom_tile(aes(x = sample, y = "label", fill = time)) +
   geom_text(data = colSideColor[str_detect(colSideColor$sample, "2"),],
@@ -365,6 +369,7 @@ colSideColorPlot_time <- ggplot(data = colSideColor) +
   scale_fill_brewer(palette = "Reds")
 
 
+# Tissue/region
 colSideColorPlot_tissue <- ggplot(data = colSideColor) +
   geom_tile(aes(x = sample, y = "label", fill = tissue)) +
   geom_text(data = colSideColor[str_detect(colSideColor$sample, "2") & 
@@ -394,13 +399,14 @@ markerPlot <- ggpubr::ggarrange(colSideColorPlot_tissue,
                                 common.legend = FALSE)
 
 # Save figure
-ggsave(markerPlot, file = "markerPlot_RTT.png", width = 6, height = 9)
+ggsave(markerPlot, file = paste0(outputDir,"markerPlot_RTT.png"), width = 6, height = 9)
 
 
 
 #*****************************************************************************#
-# Make legend
+# Make legend for plots
 #*****************************************************************************#
+
 legendPlot <- ggplot(plotDF_IC) +
   geom_tile(aes(x = key, y = HGNC.symbol, fill = value)) +
   xlab(NULL) +
