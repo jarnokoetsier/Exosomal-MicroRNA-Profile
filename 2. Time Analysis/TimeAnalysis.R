@@ -32,13 +32,13 @@ library(ggvenn)
 library(GGally)
 
 # Set working directory
-setwd("E:/RTTproject/ExosomeAnalysis/2. Time Analysis")
+setwd("E:/RTTproject/ExosomeAnalysis/2. Time Analysis/")
 
 # Get data directory
 dataDir <- "E:/RTTproject/ExosomeAnalysis/"
 
 # Get output directory
-outputDir <- "E:/RTTproject/ExosomeAnalysis/2. Time Analysis"
+outputDir <- "E:/RTTproject/ExosomeAnalysis/2. Time Analysis/"
 
 ###############################################################################
 
@@ -175,7 +175,7 @@ sigMir <- topTable$ID[topTable$FDR < 0.05]
 mirList[["Dorsal_IC"]] <- topTable_combined[sigMir, "CompleteName"]
 
 # Save mirList object
-save(mirList, file = file(outputDir,"mirList.RData"))
+save(mirList, file = paste0(outputDir,"mirList.RData"))
 
 ###############################################################################
 
@@ -184,16 +184,18 @@ save(mirList, file = file(outputDir,"mirList.RData"))
 ###############################################################################
 
 # Load significant miRNAs (if needed)
-load("mirList.RData")
+load(paste0(outputDir,"mirList.RData"))
 
 # Load normalized expression data
 load(paste0(dataDir,"NormalizedExpr.RData"))
+
+# Get IC samples only
 logcpm <- logcpm[,sampleInfo$SampleID]
 
 # Adjust sample ID
 sampleInfo$SampleID <- str_remove_all(sampleInfo$SampleID, "IC_MeCP2_R255X_")
 
-# Label significant miRNAs
+# Significant miRNAs: Ventral only, Dorsal only, or both
 both_sig <- intersect(mirList$Ventral_IC, mirList$Dorsal_IC)
 ventral_sig <- setdiff(mirList$Ventral_IC, mirList$Dorsal_IC)
 dorsal_sig <- setdiff(mirList$Dorsal_IC, mirList$Ventral_IC)
@@ -207,77 +209,82 @@ mirnaDF <- data.frame(mirName = c(both_sig,
                               rep("Dorsal", length(dorsal_sig)))
                       )
 
-# Unit variance scale the expression matrix
+# Unit variance scale the expression matrix: (x - mean(x))/sd(x)
 exprMatrix_scaled <- (logcpm - rowMeans(logcpm))/(apply(logcpm,1,sd))
 colnames(exprMatrix_scaled) <- str_remove_all(colnames(logcpm), "IC_MeCP2_R255X_")
 rownames(exprMatrix_scaled) <- rownames(logcpm)
 
-# Put expression matrix in correct format
+# Put expression matrix in correct format for plotting with ggplot
 exprDF <- gather(as.data.frame(exprMatrix_scaled), key = "SampleID", value = "Expr")
 exprDF$miRNA_Index <- rep(rownames(exprMatrix_scaled), ncol(exprMatrix_scaled))
 
 # Combine expression information with feature information
 exprDF <- inner_join(exprDF, featureInfo[,c(2:9,24)], by = c("miRNA_Index" = "miRNA_Index"))
 
-# Combine and filter for significant micrnas
+# Combine and filter for significant miRNAs
 exprDF_sig <- inner_join(exprDF, mirnaDF, by = c("CompleteName" = "mirName"))
 length(unique(exprDF_sig$miR_name))
 
 # Combine with sample Information
 exprDF_sig <- inner_join(exprDF_sig, sampleInfo, by = c("SampleID" = "SampleID"))
 
-# Adjust data frame for plotting
+# Convert sample IDs to a factor to ensure correct order of samples in plot
 plotData <- exprDF_sig
 plotData$SampleID <- factor(plotData$SampleID,
                               levels = c(rev(sampleInfo$SampleID[sampleInfo$Tissue == "Dorsal"]),
                                          sampleInfo$SampleID[sampleInfo$Tissue == "Cell"],
                                          sampleInfo$SampleID[sampleInfo$Tissue == "Ventral"]))
 
-# save plotting data
-#save(plotData, file = "plotData.RData")
 
-
-###############################################################################
-
-# Make plot
-
-###############################################################################
-
-# Load data
-load("mirList.RData")
-
+# Change "Cell" to "iPSC"
 plotData$Tissue <- str_replace_all(plotData$Tissue, "Cell", "iPSC")
 
-# Order the miRNAs based on Ward.D2 clustering
-model <- hclust(dist(exprMatrix_scaled[unique(plotData$miRNA_Index),sampleInfo$SampleID]), "ward.D2")
+
+###############################################################################
+
+# 6. Cluster the miRNAs and make dendrogram
+
+###############################################################################
+
+# Perform hierarchical clustering
+model <- hclust(dist(exprMatrix_scaled[unique(plotData$miRNA_Index),sampleInfo$SampleID],
+                     method = "euclidean"), "ward.D2")
+
+# Make clusters
+clusters <- cutree(model, k = 3)
+
+# Get miRNA order (needed for plotting)
 rownames(featureInfo) <- featureInfo$miRNA_Index
 mirna_ordered <- featureInfo[model$labels[model$order], "CompleteName"]
 
-# Order the mirna's in plotData datafram
-plotData$CompleteName <- factor(plotData$CompleteName, 
-                                levels = mirna_ordered)
-plotData$Tissue <- factor(plotData$Tissue, levels = c("Dorsal", "iPSC", "Ventral"))
-
-# Save clusters
-clusters <- cutree(model, k = 3)
-save(clusters, file = "clusters.RData")
+# Put cluster information into data frame for plotting
+dendroDF <- data.frame(Name = factor(mirna_ordered,
+                                     levels = mirna_ordered), 
+                       Cluster = cutree(model, k = 3))
 
 # Make dendrogram
-dendroDF <- data.frame(Name = names(cutree(model, k = 3)), Cluster = cutree(model, k = 3))
-#dendroDF$Cluster[dendroDF$Cluster == 1] <- 6L
-#dendroDF$Cluster[dendroDF$Cluster == 2] <- 8L
-#dendroDF$Cluster[dendroDF$Cluster == 3] <- 5L
-#dendroDF$Cluster[dendroDF$Cluster == 4] <- 7L
 dendroPlot <- ggplot() +
   geom_tile(data = dendroDF, 
             aes(x = 1, y = as.numeric(fct_reorder(Name, Cluster)), fill = factor(Cluster))) +
   geom_dendro(model,xlim = c(1.5,10), pointing = "side") +
   theme_void() +
   theme(legend.position = "none") +
-  scale_fill_manual(values = brewer.pal(n = 8, name = "Dark2")[c(4,6,8,7)])
+  scale_fill_manual(values = brewer.pal(n = 8, name = "Dark2")[c(4,6,8)])
 
 
-# Make main plot
+
+###############################################################################
+
+# 7. Make final plot
+
+###############################################################################
+
+# Order the miRNAs in the data frame
+plotData$CompleteName <- factor(plotData$CompleteName, 
+                                levels = mirna_ordered)
+plotData$Tissue <- factor(plotData$Tissue, levels = c("Dorsal", "iPSC", "Ventral"))
+
+# Make heatmap of expression values (= main plot)
 mainPlot <- ggplot(data = plotData, aes(x = SampleID, y = CompleteName, fill = Expr)) +
   geom_tile(color = "white") +
   facet_grid(.~Tissue, scales = "free", space = "free") +
@@ -293,12 +300,10 @@ mainPlot <- ggplot(data = plotData, aes(x = SampleID, y = CompleteName, fill = E
         strip.text.x = element_blank())
 
 
-
-# Row side color
+# Add row side color: significant in dorsal, ventral, or both regions?
 rowSideColor <- unique(data.frame(
   miRNA = plotData$CompleteName,
   Sig = factor(plotData$Sig, levels = c("Dorsal", "Ventral", "Both"))))
-
 
 rowSideColorPlot <- ggplot() +
   geom_tile(data = rowSideColor, aes(x = miRNA, y = "label", fill = Sig)) +
@@ -309,13 +314,13 @@ rowSideColorPlot <- ggplot() +
         axis.text.y = element_text(hjust = 1)) +
   scale_fill_brewer(palette = "Set1")
 
-# Col side color
+# Add row side color: region/tissue and time
 colSideColor<- unique(data.frame(
   sample = plotData$SampleID,
   time = plotData$Time,
   tissue = plotData$Tissue))
 
-
+# Time
 colSideColorPlot_time <- ggplot(data = colSideColor) +
   geom_tile(aes(x = sample, y = "label", fill = time)) +
   geom_text(data = colSideColor[str_detect(colSideColor$sample, "2"),],
@@ -329,16 +334,12 @@ colSideColorPlot_time <- ggplot(data = colSideColor) +
         strip.text.x = element_blank()) +
   scale_fill_brewer(palette = "Reds")
 
-colSideColor_tissue <- unique(data.frame(
-  sample = plotData$SampleID,
-  tissue = plotData$Tissue))
-
-
-colSideColorPlot_tissue <- ggplot(data = colSideColor_tissue) +
+# Region/Tissue
+colSideColorPlot_tissue <- ggplot(data = colSideColor) +
   geom_tile(aes(x = sample, y = "label", fill = tissue)) +
-  geom_text(data = colSideColor[str_detect(colSideColor_tissue$sample, "2") & 
-                                       (str_detect(colSideColor_tissue$sample, "D40") |
-                                          str_detect(colSideColor_tissue$sample, "D0")),],
+  geom_text(data = colSideColor[str_detect(colSideColor$sample, "2") & 
+                                       (str_detect(colSideColor$sample, "D40") |
+                                          str_detect(colSideColor$sample, "D0")),],
             aes(x = sample, y = "label", label = tissue)) +
   facet_grid(.~tissue, scales = "free", space = "free") +
   theme_void() +
@@ -349,10 +350,7 @@ colSideColorPlot_tissue <- ggplot(data = colSideColor_tissue) +
         strip.text.x = element_blank()) +
   scale_fill_brewer(palette = "Dark2")
 
-
-# Combine plots
-
-# With dendrogram
+# Combine plots into a single figure
 finalPlot <- ggarrange(NULL,
                        colSideColorPlot_tissue,
                        NULL,
@@ -365,9 +363,13 @@ finalPlot <- ggarrange(NULL,
                        heights = c(0.5,9,0.5), widths = c(2,8,2),nrow = 3,ncol = 3,
                        common.legend = FALSE)
 
-ggsave(finalPlot, file = "TimeAnalysis_FinalPlot.png", width = 10, height = 8)
+# Save plot
+ggsave(finalPlot, file = paste0(outputDir,"TimeAnalysis_FinalPlot.png"), width = 10, height = 8)
 
-# Get legends
+
+# Get legends for plots:
+
+# Legend of expression values
 legendPlot <- ggplot() +
   geom_tile(data = plotData, aes(x = SampleID, y = CompleteName, fill = Expr)) +
   scale_fill_viridis_c(limits = c(-2, 2), oob = scales::squish) +
@@ -382,7 +384,7 @@ legend <- cowplot::get_legend(legendPlot)
 grid.newpage()
 grid.draw(legend)
 
-
+# Legend of row labels
 legendPlot <-ggplot() +
   geom_tile(data = rowSideColor, aes(x = miRNA, y = "label", fill = Sig)) +
   labs(fill = "FDR-adjusted\np-value < 0.05") +
@@ -399,30 +401,37 @@ grid.draw(legend)
 
 ###############################################################################
 
-# constant expression
+# 8. Identification of ubiquitously expressed miRNAs
 
 ###############################################################################
 
-# constant Expr
+# miRNAs with a constantly high expression (ubiquitously expressed):
+# expression higher than 12 in all 21 isogenic control samples
 constantExpr <- logcpm[rowSums(logcpm > 12) == 21,]
 mirna <- rownames(constantExpr)
 
-write.table(featureInfo$CompleteName[featureInfo$miRNA_Index %in% mirna], file = "constantExpr.txt", 
+# Save the miRNAs in a file (will be used for pathway analysis)
+write.table(featureInfo$CompleteName[featureInfo$miRNA_Index %in% mirna], file = paste0(outputDir,"constantExpr.txt"), 
             quote = FALSE, col.names = FALSE, row.names = FALSE)
 
-
-# get expression
+# Prepare data for plotting
 exprMatrix_filtered <- logcpm
-
-# prepare data for plotting
 df <- gather(as.data.frame(exprMatrix_filtered), key = "SampleID", value = "Expr")
 df$mir_id <- rep(rownames(exprMatrix_filtered), ncol(exprMatrix_filtered))
+
+# Combine with feature information
 df <- inner_join(df, featureInfo, by = c("mir_id" = "miRNA_Index"))
+
+# Combine with sample information
+load(paste0(dataDir,"sampleInfo.RData"))
 df<- inner_join(df, sampleInfo, by = c("SampleID" = "SampleID"))
+
+# Format data
 df$start <- as.numeric(df$start)
 df$rep_group <- paste(df$Group, df$Tissue, df$Time, df$miR_name, sep = "_")
 df$Tissue <- str_replace_all(df$Tissue, "Cell", "iPSC")
 
+# Get mean expression per time and region/tissue
 plotData <- df %>%
   group_by(rep_group) %>%
   summarize(avgExpr = mean(Expr),
@@ -434,6 +443,7 @@ plotData <- df %>%
             miR_name = CompleteName,
             miR_Index = mir_id)
 
+# Set order of groups for plotting
 plotData$plotGroup <- factor(paste(plotData$Tissue, plotData$Time,sep = "_"),
                              levels = c("Dorsal_D75",
                                         "Dorsal_D40",
@@ -444,7 +454,7 @@ plotData$plotGroup <- factor(paste(plotData$Tissue, plotData$Time,sep = "_"),
                                         "Ventral_D75"))
 
 
-# Make plot
+# Make main plot
 main <- ggplot() +
   geom_line(data = plotData, aes(x = plotGroup, y = avgExpr, group = miR_name), color = "grey") +
   geom_line(data = plotData[plotData$miR_Index %in% mirna,], 
@@ -456,12 +466,14 @@ main <- ggplot() +
   theme(axis.title.x = element_blank(),
         axis.text.x = element_blank())
 
+
+# Add column side colors
 colSideColor<- unique(data.frame(
   sample = plotData$plotGroup,
   time = plotData$Time,
   tissue = plotData$Tissue))
 
-
+# Time
 colSideColorPlot_time <- ggplot(data = colSideColor) +
   geom_tile(aes(x = sample, y = "label", fill = time)) +
   geom_text(data = colSideColor,
@@ -474,7 +486,7 @@ colSideColorPlot_time <- ggplot(data = colSideColor) +
         strip.text.x = element_blank()) +
   scale_fill_brewer(palette = "Reds")
 
-
+# Tissue/region
 colSideColorPlot_tissue <- ggplot(data = colSideColor) +
   geom_tile(aes(x = sample, y = "label", fill = tissue)) +
   geom_text(data = colSideColor[(colSideColor$time == "D40") |
@@ -488,6 +500,7 @@ colSideColorPlot_tissue <- ggplot(data = colSideColor) +
         strip.text.x = element_blank()) +
   scale_fill_brewer(palette = "Dark2")
 
+# Combine plots into single image
 p <- ggarrange(main, 
                colSideColorPlot_time,
                colSideColorPlot_tissue,
@@ -498,26 +511,34 @@ p <- ggarrange(main,
                legend = "right")
 
 # Save plot
-ggsave(p, file = "constExpr_color_parallel.png", width = 10, height = 6)
+ggsave(p, file = paste0(outputDir, "constExpr_color_parallel.png"), width = 10, height = 6)
+
+
 
 ###############################################################################
 
-# 302-family
+# 9. Plot expression of hsa-miR-302/367 cluster
 
 ###############################################################################
 
-# get expression
+# Prepare data for plotting
 exprMatrix_filtered <- logcpm
-
-# prepare data for plotting
 df <- gather(as.data.frame(exprMatrix_filtered), key = "SampleID", value = "Expr")
 df$mir_id <- rep(rownames(exprMatrix_filtered), ncol(exprMatrix_filtered))
+
+# Combine with feature information
 df <- inner_join(df, featureInfo, by = c("mir_id" = "miRNA_Index"))
+
+# Combine with sample information
+load(paste0(dataDir,"sampleInfo.RData"))
 df<- inner_join(df, sampleInfo, by = c("SampleID" = "SampleID"))
+
+# Format data
 df$start <- as.numeric(df$start)
 df$rep_group <- paste(df$Group, df$Tissue, df$Time, df$miR_name, sep = "_")
 df$Tissue <- str_replace_all(df$Tissue, "Cell", "iPSC")
 
+# Get mean expression per time and region/tissue
 plotData <- df %>%
   group_by(rep_group) %>%
   summarize(avgExpr = mean(Expr),
@@ -529,6 +550,7 @@ plotData <- df %>%
             miR_name = CompleteName,
             miR_Index = mir_id)
 
+# Set order of groups for plotting
 plotData$plotGroup <- factor(paste(plotData$Tissue, plotData$Time,sep = "_"),
                              levels = c("Dorsal_D75",
                                         "Dorsal_D40",
@@ -539,14 +561,14 @@ plotData$plotGroup <- factor(paste(plotData$Tissue, plotData$Time,sep = "_"),
                                         "Ventral_D75"))
 
 
-# Get 302-family
+# Get hsa-miR-302/367 cluster
 mirna <- featureInfo$miRNA_Index[(str_detect(featureInfo$CompleteName, "302")) | (str_detect(featureInfo$CompleteName, "367-"))]
 
-# Make plot
+# Main plot
 main <- ggplot() +
   geom_line(data = plotData, aes(x = plotGroup, y = avgExpr, group = miR_name), color = "grey") +
   geom_line(data = plotData[plotData$miR_Index %in% mirna,], 
-            aes(x = plotGroup, y = avgExpr, group = miR_name, color = miR_name), size = 1) +
+            aes(x = plotGroup, y = avgExpr, group = miR_name, color = miR_name), linewidth = 1) +
   ylab(expression("Mean" ~ log[2] ~ "expression")) +
   labs(color = NULL) +
   scale_color_manual(values = c(brewer.pal(n = 7, name = "Dark2"), "red", "black")) +
@@ -554,12 +576,13 @@ main <- ggplot() +
   theme(axis.title.x = element_blank(),
         axis.text.x = element_blank())
 
+# Column side colors
 colSideColor<- unique(data.frame(
   sample = plotData$plotGroup,
   time = plotData$Time,
   tissue = plotData$Tissue))
 
-
+# Time
 colSideColorPlot_time <- ggplot(data = colSideColor) +
   geom_tile(aes(x = sample, y = "label", fill = time)) +
   geom_text(data = colSideColor,
@@ -572,7 +595,7 @@ colSideColorPlot_time <- ggplot(data = colSideColor) +
         strip.text.x = element_blank()) +
   scale_fill_brewer(palette = "Reds")
 
-
+# Tissue/region
 colSideColorPlot_tissue <- ggplot(data = colSideColor) +
   geom_tile(aes(x = sample, y = "label", fill = tissue)) +
   geom_text(data = colSideColor[(colSideColor$time == "D40") |
@@ -586,6 +609,7 @@ colSideColorPlot_tissue <- ggplot(data = colSideColor) +
         strip.text.x = element_blank()) +
   scale_fill_brewer(palette = "Dark2")
 
+# Combine plots into single figure
 p <- ggarrange(main, 
           colSideColorPlot_time,
           colSideColorPlot_tissue,
@@ -596,126 +620,5 @@ p <- ggarrange(main,
           legend = "right")
 
 # Save plot
-ggsave(p, file = "mir302_color_parallel.png", width = 10, height = 6)
-
-
-###############################################################################
-
-# Up/Down over time
-
-###############################################################################
-
-# Sig miRNAs over time
-load("clusters.RData")
-mirna_yellow <- names(clusters[clusters == 2])
-write.table(featureInfo$CompleteName[featureInfo$miRNA_Index %in% mirna_yellow], file = "DownExpr.txt", 
-            quote = FALSE, col.names = FALSE, row.names = FALSE)
-
-
-main <- ggplot() +
-  geom_line(data = plotData, aes(x = plotGroup, y = avgExpr, group = miR_name), color = "grey") +
-  geom_line(data = plotData[plotData$miR_Index %in% mirna_yellow,], 
-            aes(x = plotGroup, y = avgExpr, group = miR_name), 
-            color = brewer.pal(n = 8, name = "Dark2")[c(6)], size = 1) +
-  ylab(expression("Mean "~log[2]~" expression")) +
-  theme_minimal() +
-  theme(axis.title.x = element_blank(),
-        axis.text.x = element_blank())
-
-colSideColor<- unique(data.frame(
-  sample = plotData$plotGroup,
-  time = plotData$Time,
-  tissue = plotData$Tissue))
-
-
-colSideColorPlot_time <- ggplot(data = colSideColor) +
-  geom_tile(aes(x = sample, y = "label", fill = time)) +
-  geom_text(data = colSideColor,
-            aes(x = sample, y = "label", label = time)) +
-  theme_void() +
-  theme(axis.text.x = element_blank(),#element_text(angle = 90),
-        legend.position = "none",
-        axis.text.y = element_blank(),
-        strip.background = element_blank(),
-        strip.text.x = element_blank()) +
-  scale_fill_brewer(palette = "Reds")
-
-
-colSideColorPlot_tissue <- ggplot(data = colSideColor) +
-  geom_tile(aes(x = sample, y = "label", fill = tissue)) +
-  geom_text(data = colSideColor[(colSideColor$time == "D40") |
-                                  (colSideColor$time == "D0"),],
-            aes(x = sample, y = "label", label = tissue)) +
-  theme_void() +
-  theme(axis.text.x = element_blank(),
-        legend.position = "none",
-        axis.text.y = element_blank(),
-        strip.background = element_blank(),
-        strip.text.x = element_blank()) +
-  scale_fill_brewer(palette = "Dark2")
-
-p <- ggarrange(main, 
-               colSideColorPlot_time,
-               colSideColorPlot_tissue,
-               nrow = 3,
-               heights = c(8,1,1),
-               align = "v")
-
-ggsave(p, file = "DownOverTime_parallel.png", width = 8, height = 6)
-
-mirna_pink <- names(clusters[clusters == 1])
-write.table(featureInfo$CompleteName[featureInfo$miRNA_Index %in% mirna_pink], file = "UpExpr.txt", 
-            quote = FALSE, col.names = FALSE, row.names = FALSE)
-
-main <- ggplot() +
-  geom_line(data = plotData, aes(x = plotGroup, y = avgExpr, group = miR_name), color = "grey") +
-  geom_line(data = plotData[plotData$miR_Index %in% mirna_pink,], 
-            aes(x = plotGroup, y = avgExpr, group = miR_name), 
-            color = brewer.pal(n = 8, name = "Dark2")[c(4)], size = 1) +
-  ylab(expression("Mean "~log[2]~" expression")) +
-  theme_minimal() +
-  theme(axis.title.x = element_blank(),
-        axis.text.x = element_blank())
-
-colSideColor<- unique(data.frame(
-  sample = plotData$plotGroup,
-  time = plotData$Time,
-  tissue = plotData$Tissue))
-
-
-colSideColorPlot_time <- ggplot(data = colSideColor) +
-  geom_tile(aes(x = sample, y = "label", fill = time)) +
-  geom_text(data = colSideColor,
-            aes(x = sample, y = "label", label = time)) +
-  theme_void() +
-  theme(axis.text.x = element_blank(),#element_text(angle = 90),
-        legend.position = "none",
-        axis.text.y = element_blank(),
-        strip.background = element_blank(),
-        strip.text.x = element_blank()) +
-  scale_fill_brewer(palette = "Reds")
-
-
-colSideColorPlot_tissue <- ggplot(data = colSideColor) +
-  geom_tile(aes(x = sample, y = "label", fill = tissue)) +
-  geom_text(data = colSideColor[(colSideColor$time == "D40") |
-                                  (colSideColor$time == "D0"),],
-            aes(x = sample, y = "label", label = tissue)) +
-  theme_void() +
-  theme(axis.text.x = element_blank(),
-        legend.position = "none",
-        axis.text.y = element_blank(),
-        strip.background = element_blank(),
-        strip.text.x = element_blank()) +
-  scale_fill_brewer(palette = "Dark2")
-
-p <- ggarrange(main, 
-               colSideColorPlot_time,
-               colSideColorPlot_tissue,
-               nrow = 3,
-               heights = c(8,1,1),
-               align = "v")
-
-ggsave(p, file = "UpOverTime_parallel.png", width = 8, height = 6)
-
+ggsave(p, file = paste0(outputDir,"mir302_color_parallel.png"), width = 10, height = 6)
 

@@ -1,3 +1,18 @@
+#==============================================================================#
+
+#   File:     RTTvsIC.R
+#   Author:   Jarno Koetsier
+#   Date:     February 6, 2023
+
+#==============================================================================#
+
+
+###############################################################################
+
+# 0. Preparation
+
+###############################################################################
+
 # Clear workspace and console
 rm(list = ls())
 cat("\014") 
@@ -17,43 +32,55 @@ library(ggvenn)
 library(GGally)
 
 # Set working directory
-setwd("E:/RTTproject/ExosomeAnalysis/RTTvsIC")
+setwd("E:/RTTproject/ExosomeAnalysis/3. RTT vs IC/")
 
-# Set homeDir
-homeDir <- "E:/RTTproject/ExosomeAnalysis/"
+# Get data directory
+dataDir <- "E:/RTTproject/ExosomeAnalysis/"
+
+# Get output directory
+outputDir <- "E:/RTTproject/ExosomeAnalysis/3. RTT vs IC/"
+
 
 ###############################################################################
 
-# Data collection
+# 1. Data collection and formatting
 
 ###############################################################################
 
-# Load data
-load(paste0(homeDir,"exprMatrix_raw.RData"))
-load(paste0(homeDir,"featureInfo.RData"))
-load(paste0(homeDir,"sampleInfo.RData"))
+# Load data:
 
-# remove duplicated rows
-# MiRNAs with same name (but different chromosomes) have the same expression
-# in the expression matrix
+# 1. raw expression data
+load(paste0(dataDir,"exprMatrix_raw.RData"))
+
+# 2. feature information
+load(paste0(dataDir,"featureInfo.RData"))
+
+# 3. sample information (IC only)
+load(paste0(dataDir,"sampleInfo.RData"))
+
+# Remove duplicated rows
 exprMatrix <- exprMatrix[!duplicated(exprMatrix),]
 
-# Make name of samples
+# Put miRNA name in correct format
 featureInfo$CompleteName <- str_remove_all(featureInfo$miR_name, "_.*")
+
+# Remove duplicated features
 featureInfo <- featureInfo[!duplicated(featureInfo$CompleteName),]
 
 ###############################################################################
 
-# 1. IC vs RTT
+# 2. Statistical analysis: RTT vs IC
 
 ###############################################################################
 
-# Make DGE list object
+# Collect sample IDs
 samples <- sampleInfo$SampleID
+
 # Combine region/tissue (iPSC, Dorsal, Ventral), time (D0, D13, D40, and D75), and group (IC and RTT)
 sampleInfo$Time_Group <- paste0(sampleInfo$Tissue, "_", sampleInfo$Time, "_", sampleInfo$Group)
 time_group <- factor(sampleInfo$Time_Group)
 
+# Make DGE list object
 y <- DGEList(counts = exprMatrix[, samples],
              group = time_group)
 
@@ -65,7 +92,7 @@ y <- y[keep,,keep.lib.sizes=FALSE]
 y <- calcNormFactors(y)
 
 # Make design matrix
-design <- model.matrix(~0 + time_group)
+design <- model.matrix(~ 0 + time_group)
 
 # Estimate dispersion
 y <- estimateDisp(y, design)
@@ -73,7 +100,7 @@ y <- estimateDisp(y, design)
 # Fit linear model (quasi-likelihood F-tests)
 fit <- glmQLFit(y, design)
 
-# Contrasts
+# Make Contrasts: RTT vs IC at every time point
 all_contrasts <- makeContrasts(
   Cell_D0_RTTvsIC = time_groupCell_D0_RTT-time_groupCell_D0_IC,
   Dorsal_D13_RTTvsIC = time_groupDorsal_D13_RTT-time_groupDorsal_D13_IC,
@@ -85,10 +112,10 @@ all_contrasts <- makeContrasts(
   levels = design
 )
 
-# Perform statistical analysis
+# Perform statistical analysis for each comparison and collect
+# top table in a list object
 topList <- list()
 for (i in 1:7){
-  
   # Test for significance
   test <- glmQLFTest(fit, contrast = all_contrasts[,i])
   
@@ -102,7 +129,8 @@ for (i in 1:7){
 
 names(topList) <- colnames(all_contrasts)
 
-# miRNA's that are significant at at least one time point
+
+# Collect the miRNAs that are significant for at least one time point
 sigMir <- NULL
 for (i in 1:length(topList)){
   sigMir <- c(sigMir,topList[[i]]$ID[topList[[i]]$FDR < 0.05])
@@ -110,11 +138,12 @@ for (i in 1:length(topList)){
 sigMir <- unique(sigMir)
 sigMir_name <- featureInfo$CompleteName[featureInfo$miRNA_Index %in% sigMir]
 
-# save sig miRNAs
-write.table(sigMir_name, file = "RTTvsIC.txt", 
+# Save significant miRNAs
+write.table(sigMir_name, file = paste0(outputDir,"RTTvsIC.txt"), 
             quote = FALSE, col.names = FALSE, row.names = FALSE)
 
-# Get logFC dataframe
+
+# Collect logFCs in a data frame
 mir_logFC <- topList[[1]][,c(6,1)]
 colnames(mir_logFC) <- c("ID", names(topList)[1])
 for (i in 2:length(topList)){
@@ -124,7 +153,7 @@ for (i in 2:length(topList)){
 }
 
 
-# Get p-value dataframe
+# Collext p-values in a data frame
 mir_pvalue <- topList[[1]][,c(6,5)]
 colnames(mir_pvalue) <- c("ID", names(topList)[1])
 for (i in 2:length(topList)){
@@ -135,41 +164,41 @@ for (i in 2:length(topList)){
 
 ###############################################################################
 
-# 2. Make plot
+# 2. Prepare data for plotting
 
 ###############################################################################
 
-# Collect logFCs
+# Put logFCs in correct format
 plotData <- gather(mir_logFC[,2:8])
 plotData$mir_index <- rep(mir_logFC$ID,7)
 plotData$test <- paste0(plotData$key, plotData$mir_index)
 
-# Collect p-values
+# Put p-values in correct format
 plotData_p <- gather(mir_pvalue[,2:8])
 plotData_p$mir_index <- rep(mir_pvalue$ID,7)
 plotData_p$test <- paste0(plotData_p$key, plotData_p$mir_index)
 plotData_p <- plotData_p[,c(2,4)]
 colnames(plotData_p) <- c("FDR", "test")
 
-# Combine logFCs and pvalues
+# Combine logFCs and p-values into a single data frame
 plotData <- inner_join(plotData, plotData_p, by = c('test' = "test"))
+
+# Add a column that indicates statistical signficance (FDR < 0.05)
 plotData$Sig <- ifelse(plotData$FDR < 0.05, "Yes", "No")
 
 # Filter for significant miRNAs only
 plotData <- plotData[plotData$mir_index %in% sigMir,]
 
-
-# combine with feature info
+# Combine with feature info
 plotData <- inner_join(plotData, featureInfo, by = c("mir_index" = "miRNA_Index"))
 
-# combine with sample info
+# Combine with sample info
 plotData$key <- str_remove_all(plotData$key, "_RTTvsIC")
-
-# prepare data for plotting
 sampleInfo$tissue_time <- paste(sampleInfo$Tissue, sampleInfo$Time, sep = "_")
 plotData <- inner_join(plotData, sampleInfo[(sampleInfo$Group == "IC") &
                                               (sampleInfo$Replicate == 1),], by = c("key" = "tissue_time"))
 
+# Make sure that the groups are in the correct order for plotting
 plotData$key <- factor(plotData$key,levels = c("Dorsal_D75",
                                               "Dorsal_D40",
                                               "Dorsal_D13",
@@ -178,21 +207,21 @@ plotData$key <- factor(plotData$key,levels = c("Dorsal_D75",
                                               "Ventral_D40",
                                                "Ventral_D75"))
 
+# Change "Cell" to "iPSC
 plotData$Tissue[plotData$Tissue == "Cell"] <- "iPSC"
+
+# Make sure that the regions/tissues are in the correct order
 plotData$Tissue <- factor(plotData$Tissue, levels = c("Dorsal", "iPSC", "Ventral"))
 
-
-# Order of miRNAs
+# The order of miRNAs is determined by clustering
 rownames(mir_logFC) <- mir_logFC$ID
 model <- hclust(dist(mir_logFC[,2:8]), "ward.D2")
 rownames(featureInfo) <- featureInfo$miRNA_Index
 mirna_ordered <- featureInfo[model$labels[model$order], "CompleteName"]
-
-# Order the mirna's in plotData datafram
 plotData$CompleteName <- factor(plotData$CompleteName, 
                                 levels = mirna_ordered)
 
-# Main plot: Heatmap
+# Make main plot: Heatmap
 mainPlot <- ggplot(data = plotData, aes(x = key, y = CompleteName, fill = value,  color = Sig)) +
   geom_tile(linewidth = 0.5, width = 0.9, height=0.7) +
   facet_grid(.~Tissue, scales = "free", space = "free") +
@@ -208,16 +237,22 @@ mainPlot <- ggplot(data = plotData, aes(x = key, y = CompleteName, fill = value,
         strip.background = element_blank(),
         strip.text.x = element_blank())
 
-# Row side color: Chr14 cluster vs others
+
+# Row side color: Chr14 miRNA cluster (C14MC) vs others:
+
+# Get miRNAs that belong to the C14MC:
 cluster_chr14 <- featureInfo[featureInfo$genomeID == "chr14",]
 cluster_chr14$start <- as.numeric(cluster_chr14$start)
 cluster_chr14 <- cluster_chr14[(cluster_chr14$start < 101100000) &
                                  (cluster_chr14$start > 100800000),]
+cluster_chr14 <- cluster_chr14[cluster_chr14$strand == "+",]
+
+# Assign correct labels to the miRNAs
 rowSideColor <- unique(data.frame(
   miRNA = plotData$CompleteName,
   Chr14 = ifelse(plotData$CompleteName %in% cluster_chr14$CompleteName, "C14MC", "Other")))
 
-
+# Make row side colors
 rowSideColorPlot <- ggplot() +
   geom_tile(data = rowSideColor, aes(x = miRNA, y = "label", fill = Chr14)) +
   coord_flip() +
@@ -225,17 +260,15 @@ rowSideColorPlot <- ggplot() +
   theme(axis.text.x = element_blank(),
         legend.position = "none",
         axis.text.y = element_text(hjust = 1)) +
-  #scale_fill_brewer(palette = "Set1") +
-  #scale_fill_manual(values = RColorBrewer::brewer.pal(n = 6, name = "Dark2")[c(4,6)])
   scale_fill_manual(values = c("#F99417", "grey"))
 
-# Col side color: time and tissue
+# Column side color: time and tissue/region
 colSideColor<- unique(data.frame(
   sample = plotData$key,
   time = plotData$Time,
   tissue = plotData$Tissue))
 
-
+# Time
 colSideColorPlot_time <- ggplot(data = colSideColor) +
   geom_tile(aes(x = sample, y = "label", fill = time)) +
   geom_text(data = colSideColor,
@@ -249,8 +282,7 @@ colSideColorPlot_time <- ggplot(data = colSideColor) +
         strip.text.x = element_blank()) +
   scale_fill_brewer(palette = "Reds")
 
-
-
+# Tissue/region
 colSideColorPlot_tissue <- ggplot(data = colSideColor) +
   geom_tile(aes(x = sample, y = "label", fill = tissue)) +
   geom_text(data = colSideColor[(str_detect(colSideColor$sample, "D40") |
@@ -266,7 +298,7 @@ colSideColorPlot_tissue <- ggplot(data = colSideColor) +
   scale_fill_brewer(palette = "Dark2")
 
 
-# Combine plots
+# Combine plots into a single figure
 finalPlot <- ggarrange(NULL,
                        colSideColorPlot_tissue,
                        rowSideColorPlot,
@@ -277,12 +309,12 @@ finalPlot <- ggarrange(NULL,
                        common.legend = FALSE)
 
 # Save plot
-ggsave(finalPlot, file = "RTTvsIC_FinalPlot.png", width = 8, height = 10)
+ggsave(finalPlot, file = paste0(outputDir,"RTTvsIC_FinalPlot.png"), width = 8, height = 10)
 
 
+# Get legends:
 
-
-# Get legends
+# Legend of logFCs in heatmap
 legendPlot <- ggplot(data = plotData, aes(x = key, y = CompleteName, fill = value, color = Sig)) +
   geom_tile(linewidth = 0.5, width= 1, height=0.7) +
   facet_grid(.~Tissue, scales = "free", space = "free") +
@@ -290,7 +322,7 @@ legendPlot <- ggplot(data = plotData, aes(x = key, y = CompleteName, fill = valu
                        trans = "pseudo_log", breaks = c(-4,0,4)) +
   scale_color_manual(values = c("white", "black")) +
   labs(fill = expression(log[2]*FC)) +
-  guides(color = FALSE) +
+  guides(color = "none") +
   theme_void() +
   theme(axis.text.x = element_blank(),
         axis.text.y = element_blank(),
@@ -306,6 +338,7 @@ grid.newpage()
 grid.draw(legend)
 
 
+# Legend of row side color
 legendPlot <- ggplot() +
   geom_tile(data = rowSideColor, aes(x = miRNA, y = "label", fill = Chr14)) +
   coord_flip() +
@@ -320,255 +353,99 @@ grid.draw(legend)
 
 
 
+###############################################################################
+
+# 3. Plot Chromosome 14 cluster
 
 ###############################################################################
 
-# Parallel plot
 
-###############################################################################
-
-# Prepare data (logFCs) for plotting
-plotData <- gather(mir_logFC[,2:8])
-plotData$ID <- rep(mir_logFC$ID, 7)
-plotData$Tissue <- str_remove_all(plotData$key, "_.*")
-plotData$Time <- str_remove_all(plotData$key, "_RTTvsIC")
-plotData$Time <- str_remove_all(plotData$Time, ".*_")
-
-
-plotData$Tissue[plotData$Time == "D0"] <- "iPSC"
-plotData$Sample <- factor(paste(plotData$Tissue, plotData$Time, sep = "_"),
-                          levels = c("Dorsal_D75",
-                                     "Dorsal_D40",
-                                     "Dorsal_D13",
-                                     "iPSC_D0",
-                                     "Ventral_D13",
-                                     "Ventral_D40",
-                                     "Ventral_D75"))
-
-plotData <- inner_join(plotData, featureInfo, by = c("ID" = "miRNA_Index"))
-
-
-# Get miRNAs that are part of chr14 cluster
+# Get members of the chr14 miRNA cluster (C14MC)
 cluster_chr14 <- featureInfo[featureInfo$genomeID == "chr14",]
 cluster_chr14$start <- as.numeric(cluster_chr14$start)
 cluster_chr14 <- cluster_chr14[(cluster_chr14$start < 101100000) &
                                  (cluster_chr14$start > 100800000),]
 cluster_chr14 <- cluster_chr14[cluster_chr14$strand == "+",]
-mirna <- cluster_chr14$miRNA_Index
 
+# Get the expression of these C14MC miRNAs
+load(paste0(dataDir,"NormalizedExpr.RData"))
+expr_chr14 <- logcpm[rownames(logcpm) %in% cluster_chr14$miRNA_Index,]
 
-# Main plot: logFC over time
-main <- ggplot() +
-  geom_line(data = plotData, aes(x = Sample, y = value, group = ID), color = "grey") +
-  geom_line(data = plotData[plotData$ID %in% mirna,], 
-            aes(x = Sample, y = value, group = ID, color = reorder(start, as.numeric(start))), size = 1) +
-  ylab("logFC") +
-  theme_minimal() +
-  theme(axis.title.x = element_blank(),
-        axis.text.x = element_blank(),
-        legend.position = "none") +
-  scale_color_viridis_d(option = "magma")
+# Put the expression matrix in correct format for plotting
+df_chr14 <- gather(as.data.frame(expr_chr14), key = "SampleID", value = "Expr")
+df_chr14$mir_id <- rep(rownames(expr_chr14), ncol(expr_chr14))
 
-# Side colors: tissue and time
-colSideColor<- unique(data.frame(
-  sample = plotData$Sample,
-  time = plotData$Time,
-  tissue = plotData$Tissue))
+# Combine with feature information
+df_chr14 <- inner_join(df_chr14, featureInfo, by = c("mir_id" = "miRNA_Index"))
 
+# Combine with sample information
+df_chr14 <- inner_join(df_chr14, sampleInfo, by = c("SampleID" = "SampleID"))
 
-colSideColorPlot_time <- ggplot(data = colSideColor) +
-  geom_tile(aes(x = sample, y = "label", fill = time)) +
-  geom_text(data = colSideColor,
-            aes(x = sample, y = "label", label = time)) +
-  theme_void() +
-  theme(axis.text.x = element_blank(),#element_text(angle = 90),
-        legend.position = "none",
-        axis.text.y = element_blank(),
-        strip.background = element_blank(),
-        strip.text.x = element_blank()) +
-  scale_fill_brewer(palette = "Reds")
+# Location of miRNA should be numerical
+df_chr14$start <- as.numeric(df_chr14$start)
 
+# Get sample groups
+df_chr14$rep_group <- paste(df_chr14$Group, df_chr14$Tissue, df_chr14$Time, df_chr14$miR_name, sep = "_")
 
-colSideColorPlot_tissue <- ggplot(data = colSideColor) +
-  geom_tile(aes(x = sample, y = "label", fill = tissue)) +
-  geom_text(data = colSideColor[(colSideColor$time == "D40") |
-                                  (colSideColor$time == "D0"),],
-            aes(x = sample, y = "label", label = tissue)) +
-  theme_void() +
-  theme(axis.text.x = element_blank(),
-        legend.position = "none",
-        axis.text.y = element_blank(),
-        strip.background = element_blank(),
-        strip.text.x = element_blank()) +
-  scale_fill_brewer(palette = "Dark2")
+# Get average expression per group (IC, RTT), Time (D0-D75), and Region (Dorsal, ventral)
+plotData <- df_chr14 %>%
+  group_by(rep_group) %>%
+  summarize(avgExpr = mean(Expr),
+            start = start,
+            Group = Group,
+            Tissue = Tissue,
+            Time = Time,
+            SampleID = SampleID,
+            miR_name = miR_name)
 
-# Combine plots into single image
-p <- ggarrange(main, 
-               colSideColorPlot_time,
-               colSideColorPlot_tissue,
-               nrow = 3,
-               heights = c(8,1,1),
-               align = "v")
+# Correct naming of sample groups (e.g., RTT: D40)
+plotData$TimeGroup <- paste0(plotData$Group, ": ", plotData$Time)
 
-# Save output
-ggsave(p, file = "chr14_parallel.png", width = 8, height = 6)
-
-
-# Make legend
-test <- plotData[!duplicated(plotData$start),]
-p <- ggplot(test[test$ID %in% mirna,]) +
-  geom_tile(aes(x = as.numeric(start), y = 1, fill = reorder(start, as.numeric(start)))) +
-  theme_classic() +
-  xlab("Location on chromosome 14") +
+# Plot ventral region
+p_ventral <- ggplot() +
+  geom_point(data = plotData[(plotData$Tissue != "Dorsal"),], 
+             aes(x = start, y = avgExpr, color = TimeGroup, shape = Group)) +
+  scale_color_manual(values = c(brewer.pal(n = 5, "Blues")[2:5],
+                                brewer.pal(n = 5, "Reds")[2:5])) +
   scale_x_continuous(labels=function(x) format(x, big.mark = ",", scientific = FALSE)) +
-  coord_flip() +
-  scale_fill_viridis_d(option = "magma") +
-  theme(legend.position = "none",
-        axis.line.x = element_blank(),
-        axis.title.x = element_blank(),
-        axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        axis.line.y = element_line(size = 1),
-        axis.text.y = element_text(angle = 90, hjust = 0),
-        axis.ticks.y = element_line(size = 2))
-
-# Save legend
-ggsave(p, file = "legendParallel.png", width = 1, height = 8)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-plotData_ventral <- inner_join(topTable_ventral, featureInfo, by = c("ID" = "miRNA_Index"))
-colnames(plotData_ventral) <- c("D0", "D13", "D40", "D75", colnames(plotData_ventral)[-c(1,2,3,4)])
-plotData_ventral$Significant <- ifelse(plotData_ventral$FDR < 0.05, "Yes", "No")
-plotData_ventral$Chr14 <- ifelse(plotData_ventral$genomeID == "chr14", "Chr14", "Other")
-plotData_ventral <- arrange(plotData_ventral, desc(PValue))
-
-p_ventral <- ggparcoord(plotData_ventral, groupColumn = 34,
-           columns = 1:4,
-           alphaLines = 1,
-           showPoints = TRUE,
-           scale = "globalminmax") +
-  xlab("") +
-  ylab("logFC") +
-  ggtitle("Ventral: RTT vs IC") +
-  scale_color_manual(values = c("#69b3a2", "#E8E8E8")) +
-  theme_minimal() +
-  theme(legend.title = element_blank(),
-        legend.position = "bottom",
-        plot.title = element_text(hjust = 0.5,
+  xlab("Location on chromosome 14") +
+  ylab(expression("Mean "*log[2]* " expression")) +
+  ylim(c(0,15)) +
+  ggtitle("Ventral") +
+  guides(shape = "none") +
+  labs(shape = NULL, color = "Time") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5,
                                   face = "bold",
                                   size = 16),
-        plot.caption = element_text(hjust = 0.5,
-                                    size = 10,
-                                    face = "italic"))
-
-plotData_dorsal <- inner_join(topTable_dorsal, featureInfo, by = c("ID" = "miRNA_Index"))
-colnames(plotData_dorsal) <- c("D0", "D13", "D40", "D75", colnames(plotData_dorsal)[-c(1,2,3,4)])
-plotData_dorsal$Significant <- ifelse(plotData_dorsal$FDR < 0.05, "Yes", "No")
-plotData_dorsal$Chr14 <- ifelse(plotData_dorsal$genomeID == "chr14", "Chr14", "Other")
-plotData_dorsal <- arrange(plotData_dorsal, desc(PValue))
-
-p_dorsal <- ggparcoord(plotData_dorsal, groupColumn = 34,
-                       columns = 1:4,
-                       alphaLines = 1,
-                       showPoints = TRUE,
-                       scale = "globalminmax") +
-  xlab("") +
-  ylab("logFC") +
-  ggtitle("Dorsal: RTT vs IC") +
-  scale_color_manual(values = c("#69b3a2", "#E8E8E8")) +
-  theme_minimal() +
-  theme(legend.title = element_blank(),
-        legend.position = "bottom",
-        plot.title = element_text(hjust = 0.5,
+        legend.title = element_text(hjust = 0.5,
+                                    face = "bold",
+                                    size = 12))
+# Plot dorsal region
+p_dorsal<- ggplot() +
+  geom_point(data = plotData[(plotData$Tissue != "Ventral"),], 
+             aes(x = start, y = avgExpr, color = TimeGroup, shape = Group)) +
+  scale_color_manual(values = c(brewer.pal(n = 5, "Blues")[2:5],
+                                brewer.pal(n = 5, "Reds")[2:5])) +
+  scale_x_continuous(labels=function(x) format(x, big.mark = ",", scientific = FALSE)) +
+  xlab(NULL) +
+  ylab(expression("Mean "*log[2]* " expression")) +
+  ylim(c(0,15)) +
+  ggtitle("Dorsal") +
+  guides(shape = "none") +
+  labs(shape = NULL, color = "Time") +
+  theme_classic() +
+  theme(plot.title = element_text(hjust = 0.5,
                                   face = "bold",
                                   size = 16),
-        plot.caption = element_text(hjust = 0.5,
-                                    size = 10,
-                                    face = "italic"))
+        legend.title = element_text(hjust = 0.5,
+                                    face = "bold",
+                                    size = 12)
+  )
 
+# Combine plots into single figure
+p <- ggarrange(p_dorsal, p_ventral, nrow = 2, common.legend = TRUE, legend = "right")
 
-
-p_all <- ggarrange(p_ventral, p_dorsal, nrow = 2, ncol = 1, align = "v", common.legend = TRUE, legend = "bottom")
-ggsave(p_all, file = "parallelPlot.png", width = 8, height = 6)
-
-
-
-
-
-plotData_ventral <- inner_join(topTable_ventral, featureInfo, by = c("ID" = "miRNA_Index"))
-colnames(plotData_ventral) <- c("D0", "D13", "D40", "D75", colnames(plotData_ventral)[-c(1,2,3,4)])
-plotData_ventral$Significant <- ifelse(plotData_ventral$FDR < 0.05, "Yes", "No")
-plotData_ventral$Chr14 <- ifelse(plotData_ventral$genomeID == "chr14", "Chr14", "Other")
-plotData_ventral <- arrange(plotData_ventral, desc(PValue))
-
-p_ventral <- ggparcoord(plotData_ventral, groupColumn = 33,
-                        columns = 1:4,
-                        alphaLines = 1,
-                        showPoints = TRUE,
-                        scale = "globalminmax") +
-  xlab("") +
-  ylab("logFC") +
-  ggtitle("Ventral: RTT vs IC") +
-  scale_color_manual(values = rev(c("#69b3a2", "#E8E8E8"))) +
-  theme_minimal() +
-  theme(legend.position = "bottom",
-        plot.title = element_text(hjust = 0.5,
-                                  face = "bold",
-                                  size = 16),
-        plot.caption = element_text(hjust = 0.5,
-                                    size = 10,
-                                    face = "italic"))
-
-plotData_dorsal <- inner_join(topTable_dorsal, featureInfo, by = c("ID" = "miRNA_Index"))
-colnames(plotData_dorsal) <- c("D0", "D13", "D40", "D75", colnames(plotData_dorsal)[-c(1,2,3,4)])
-plotData_dorsal$Significant <- ifelse(plotData_dorsal$FDR < 0.05, "Yes", "No")
-plotData_dorsal$Chr14 <- ifelse(plotData_dorsal$genomeID == "chr14", "Chr14", "Other")
-plotData_dorsal <- arrange(plotData_dorsal, desc(PValue))
-
-p_dorsal <- ggparcoord(plotData_dorsal, groupColumn = 33,
-                       columns = 1:4,
-                       alphaLines = 1,
-                       showPoints = TRUE,
-                       scale = "globalminmax") +
-  xlab("") +
-  ylab("logFC") +
-  ggtitle("Dorsal: RTT vs IC") +
-  scale_color_manual(values = rev(c("#69b3a2", "#E8E8E8"))) +
-  theme_minimal() +
-  theme(legend.position = "bottom",
-        plot.title = element_text(hjust = 0.5,
-                                  face = "bold",
-                                  size = 16),
-        plot.caption = element_text(hjust = 0.5,
-                                    size = 10,
-                                    face = "italic"))
-
-
-
-p_all <- ggarrange(p_ventral, p_dorsal, nrow = 2, ncol = 1, align = "v", common.legend = TRUE, legend = "bottom")
-ggsave(p_all, file = "parallelPlot2.png", width = 8, height = 6)
-
+# Save plot
+ggsave(p, file = paste0(outputDir,"exprChr14Cluster.png"), height = 6, width = 8)
 
