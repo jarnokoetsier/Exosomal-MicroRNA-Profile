@@ -58,16 +58,16 @@ colnames(exprMatrix) <- str_remove_all(colnames(exprMatrix),"raw")
 colnames(exprMatrix) <- str_remove_all(colnames(exprMatrix),"[()]")
 
 # Save data
-save(exprMatrix, file = paste0(outputDir,"exprMatrix_raw.RData"))
+save(exprMatrix, file = paste0(outputDir,"/exprMatrix_raw.RData"))
 
 # Get feature data
 featureInfo <- as.data.frame(mirExpr[,1:23])
-save(featureInfo, file = paste0(outputDir,"featureInfo.RData"))
+save(featureInfo, file = paste0(outputDir,"/featureInfo.RData"))
 
 # Get sampleInfo
-sampleInfo <- read.delim(paste0(outputDir,"sampleInfo.txt"))
+sampleInfo <- read.delim(paste0(outputDir,"/sampleInfo.txt"))
 all(colnames(exprMatrix) == sampleInfo$SampleID)
-save(sampleInfo, file = paste(outputDir,"sampleInfo.RData"))
+save(sampleInfo, file = paste(outputDir,"/sampleInfo.RData"))
 
 
 
