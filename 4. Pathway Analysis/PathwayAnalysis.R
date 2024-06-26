@@ -21,13 +21,13 @@ library(org.Hs.eg.db)
 library(rWikiPathways)
 
 # Set working directory
-setwd("E:/RTTproject/ExosomeAnalysis/4. Pathway Analysis/")
+setwd("D:/RTTproject/ExosomeAnalysis/4. Pathway Analysis/")
 
 # Get data directory
-dataDir <- "E:/RTTproject/ExosomeAnalysis/"
+dataDir <- "D:/RTTproject/ExosomeAnalysis/"
 
 # Get output directory
-outputDir <- "E:/RTTproject/ExosomeAnalysis/4. Pathway Analysis/"
+outputDir <- "D:/RTTproject/ExosomeAnalysis/4. Pathway Analysis/"
 
 
 ###############################################################################
@@ -78,27 +78,39 @@ path2name <- gmt[,c("wpid", "name")]
 #==============================================================================#
 
 # Get early expressed miRNAs
-miRNA_set <- read.table("E:/RTTproject/ExosomeAnalysis/2. Time Analysis/DownExpr.txt", col.names = "miRNA")
+miRNA_set <- read.table("D:/RTTproject/ExosomeAnalysis/2. Time Analysis/DownExpr.txt", col.names = "miRNA")
 
 # Get the associated genes
 geneSet <- MTI_filtered[MTI_filtered$miRNA %in% miRNA_set$miRNA,]
+
+gmt_fil <- gmt[gmt$wpid == "WP61",]
+notch <- geneSet[geneSet$`Target Gene (Entrez ID)` %in% gmt_fil$gene,]
+notch1 <- unique(notch[,c(2,4)])
+table(notch1$`Target Gene`)
 
 #==============================================================================#
 # Lately expressed miRNAs
 #==============================================================================#
 
 # Get lately expressed miRNAs
-miRNA_set <- read.table("E:/RTTproject/ExosomeAnalysis/2. Time Analysis/UpExpr.txt", col.names = "miRNA")
+miRNA_set <- read.table("D:/RTTproject/ExosomeAnalysis/2. Time Analysis/UpExpr.txt", col.names = "miRNA")
 
 # Get the associated genes
 geneSet <- MTI_filtered[MTI_filtered$miRNA %in% miRNA_set$miRNA,]
+
+gmt_fil <- gmt[gmt$wpid == "WP4806",]
+gmt_fil <- gmt[gmt$wpid == "WP2037",]
+gmt_fil <- gmt[gmt$wpid == "WP3935",]
+notch <- geneSet[geneSet$`Target Gene (Entrez ID)` %in% gmt_fil$gene,]
+notch1 <- unique(notch[,c(2,4)])
+table(notch1$`Target Gene`)
 
 #==============================================================================#
 # Ubiquitously expressed miRNAs
 #==============================================================================#
 
 # Get ubiquitously expressed miRNAs
-miRNA_set <- read.table("E:/RTTproject/ExosomeAnalysis/2. Time Analysis/ConstantExpr.txt", col.names = "miRNA")
+miRNA_set <- read.table("D:/RTTproject/ExosomeAnalysis/2. Time Analysis/ConstantExpr.txt", col.names = "miRNA")
 
 # Get the associated genes
 geneSet <- MTI_filtered[MTI_filtered$miRNA %in% miRNA_set$miRNA,]
@@ -108,11 +120,15 @@ geneSet <- MTI_filtered[MTI_filtered$miRNA %in% miRNA_set$miRNA,]
 #==============================================================================#
 
 # Get differentially expressed miRNAs (RTT vs IC
-miRNA_set <- read.table("E:/RTTproject/ExosomeAnalysis/4. RTT vs IC/RTTvsIC.txt", col.names = "miRNA")
+miRNA_set <- read.table("D:/RTTproject/ExosomeAnalysis/3. RTT vs IC/RTTvsIC.txt", col.names = "miRNA")
 
 # Get the associated genes
 geneSet <- MTI_filtered[MTI_filtered$miRNA %in% miRNA_set$miRNA,]
 
+gmt_fil <- gmt[gmt$wpid == "WP722",]
+serotonin <- geneSet[geneSet$`Target Gene (Entrez ID)` %in% gmt_fil$gene,]
+serotonin1 <- unique(serotonin[,c(2,4)])
+table(serotonin1$`Target Gene`)
 
 ###############################################################################
 

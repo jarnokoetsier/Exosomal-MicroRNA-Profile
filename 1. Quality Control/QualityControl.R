@@ -26,23 +26,23 @@ library(edgeR)
 library(heatmaply)
 library(RColorBrewer)
 library(ggpubr)
-library(ggdendro)
+#library(ggdendro)
 library(ggsci)
 library(grid)
 library(ggpubr)
 library(ggvenn)
-library(GGally)
+#library(GGally)
 library(pcaMethods)
 library(gridExtra)
 
 # Set working directory
-setwd("E:/RTTproject/ExosomeAnalysis/1. Quality Control")
+setwd("D:/RTTproject/ExosomeAnalysis/1. Quality Control")
 
 # Get data directory
-dataDir <- "E:/RTTproject/ExosomeAnalysis/"
+dataDir <- "D:/RTTproject/ExosomeAnalysis/"
 
 # Get output directory
-outputDir <- "E:/RTTproject/ExosomeAnalysis/1. Quality Control/"
+outputDir <- "D:/RTTproject/ExosomeAnalysis/1. Quality Control/"
 
 ###############################################################################
 

@@ -32,13 +32,13 @@ library(ggvenn)
 library(GGally)
 
 # Set working directory
-setwd("E:/RTTproject/ExosomeAnalysis/3. RTT vs IC/")
+setwd("D:/RTTproject/ExosomeAnalysis/3. RTT vs IC/")
 
 # Get data directory
-dataDir <- "E:/RTTproject/ExosomeAnalysis/"
+dataDir <- "D:/RTTproject/ExosomeAnalysis/"
 
 # Get output directory
-outputDir <- "E:/RTTproject/ExosomeAnalysis/3. RTT vs IC/"
+outputDir <- "D:/RTTproject/ExosomeAnalysis/3. RTT vs IC/"
 
 
 ###############################################################################

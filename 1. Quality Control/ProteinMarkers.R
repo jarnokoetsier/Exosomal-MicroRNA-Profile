@@ -25,13 +25,13 @@ library(heatmaply)
 library(readxl)
 
 # Set working directory
-setwd("E:/RTTproject/ExosomeAnalysis")
+setwd("D:/RTTproject/ExosomeAnalysis")
 
 # Get data directory
-dataDir <- "E:/RTTproject/ExosomeAnalysis/"
+dataDir <- "D:/RTTproject/ExosomeAnalysis/"
 
 # Get output directory
-outputDir <- "E:/RTTproject/ExosomeAnalysis/Quality Control/"
+outputDir <- "D:/RTTproject/ExosomeAnalysis/Quality Control/"
 
 
 ###############################################################################
@@ -44,7 +44,7 @@ outputDir <- "E:/RTTproject/ExosomeAnalysis/Quality Control/"
 load(paste0(dataDir,"sampleInfo.RData"))
 
 # Read proteomics data
-pxData_exo <- read.delim("E:/RTTproject/OriginalData/Proteomics/DEP analysis/Result files/20210308_exo_total_scaling_norm.txt")
+pxData_exo <- read.delim("D:/RTTproject/OriginalData/Proteomics/DEP analysis/Result files/20210308_exo_total_scaling_norm.txt")
 
 # Filter proteomics data (remove low quality and contaminations)
 pxData_exo <- pxData_exo[!pxData_exo$Contaminant,]
